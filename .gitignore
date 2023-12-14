@@ -1,0 +1,16 @@
+.vscode/
+build/
+.DS_Store
+.idea/
+cmake-build-debug/
+cmake-build-release/
+cmake-build-debug-coverage/
+cmake-build-relwithdebinfo/
+cmake-build-relwithdebinfo-coverage/
+.vs/
+xcode/
+data/
+xcdebugger/
+xcschememanagement.plist
+xcshareddata/
+Levelz.xcodeproj/project.xcworkspace/xcuserdata/irantha.xcuserdatad/UserInterfaceState.xcuserstate
