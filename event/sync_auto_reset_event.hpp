@@ -19,6 +19,7 @@ struct Task;
 struct SyncAutoResetEvent {
     explicit SyncAutoResetEvent(bool initiallySet = false) noexcept;
     void asyncSet() noexcept;
+    [[nodiscard]] bool trySet() noexcept;
     void set() noexcept;
     void wait() noexcept;
     void waitFor(std::chrono::duration<uint64_t, std::chrono::nanoseconds::period> duration) noexcept;

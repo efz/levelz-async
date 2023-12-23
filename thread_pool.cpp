@@ -47,6 +47,7 @@ ThreadPool::ThreadPool(int threadCount, ThreadPoolKind kind)
     , m_noLocalWork { kind == ThreadPoolKind::Background }
     , m_state { State::NotStarted }
     , m_kind { kind }
+    , m_pendingWakeUpRequestCount { 0 }
 {
     assert(kind == ThreadPoolKind::Default || kind == ThreadPoolKind::Background);
 
@@ -106,6 +107,7 @@ void ThreadPool::runWorkerThread(int threadIndex) noexcept
             coroutine = tryGetWork();
             if (!coroutine)
                 break;
+            processPendingWakeUps();
             resume(coroutine, ThreadState::s_maxChainedExecutionAllowance);
         }
 
@@ -127,6 +129,8 @@ void ThreadPool::runWorkerThread(int threadIndex) noexcept
             coroutine = tryGetRemote();
             if (coroutine)
                 goto normal_processing;
+            if (m_pendingWakeUpRequestCount != 0)
+                goto normal_processing;
 
             if (!localState.isSleeping()) {
                 setSleeping(true);
@@ -142,10 +146,13 @@ void ThreadPool::runWorkerThread(int threadIndex) noexcept
         }
 
     normal_processing:
-        if (localState.isSleeping()) {
+        if (localState.isSleeping())
             setSleeping(false);
-        }
-        resume(coroutine, ThreadState::s_maxChainedExecutionAllowance);
+        else
+            processPendingWakeUps();
+
+        if (coroutine)
+            resume(coroutine, ThreadState::s_maxChainedExecutionAllowance);
     }
 }
 
@@ -157,6 +164,8 @@ void ThreadPool::setSleeping(bool isSleeping)
     } else {
         s_currentState->setSleeping(false);
         m_mayBeSleepingThreadCount--;
+        if (m_mayBeSleepingThreadCount == 0)
+            m_pendingWakeUpRequestCount = 0;
     }
 }
 
@@ -202,7 +211,7 @@ void ThreadPool::shutdown(State state)
 
     for (int i = 0; i < m_threads.size(); ++i) {
         auto& threadState = m_threadStates[i];
-        threadState.tryWakeUp();
+        threadState.wakeUpIfSleeping();
     }
 
     for (auto& t : m_threads) {
@@ -264,19 +273,65 @@ Coroutine* ThreadPool::tryStealFromOtherThread() noexcept
     return nullptr;
 }
 
+bool ThreadPool::wakeOneThread(bool doImmediateWakeUp) noexcept
+{
+    for (int i = 0; i < m_threadCount; ++i) {
+        if (m_mayBeSleepingThreadCount == 0)
+            return true;
+
+        auto success = doImmediateWakeUp
+            ? m_threadStates[i].wakeUpIfSleeping()
+            : m_threadStates[i].tryWakeUpIfSleeping();
+
+        if (success)
+            return true;
+    }
+    return false;
+}
+
 void ThreadPool::wakeOneThread() noexcept
 {
-    if (m_mayBeSleepingThreadCount == 0)
+    bool doImmediateWakeUp = !s_currentThreadPool || s_currentThreadPool->noLocalWork()
+        || (s_currentThreadPool != this && m_mayBeSleepingThreadCount == m_threadCount);
+
+    bool success = wakeOneThread(doImmediateWakeUp);
+    if (success)
         return;
 
-    for (int i = 0; i < m_threadCount; ++i) {
-        auto success = noLocalWork()
-            ? m_threadStates[i].tryWakeUp()
-            : m_threadStates[i].asyncTryWakeUp();
-        if (success) {
-            return;
-        }
+    if (doImmediateWakeUp)
+        return;
+    if (m_mayBeSleepingThreadCount == 0)
+        return;
+    if (s_currentThreadPool && s_currentThreadPool != this
+        && m_mayBeSleepingThreadCount == m_threadCount && m_pendingWakeUpRequestCount > 0) {
+        (void)wakeOneThread(true);
+        return;
     }
+
+    int pendingWakeUpRequestCount = m_pendingWakeUpRequestCount;
+    do {
+        assert(pendingWakeUpRequestCount >= 0);
+        assert(pendingWakeUpRequestCount <= m_threadCount);
+        if (pendingWakeUpRequestCount >= m_mayBeSleepingThreadCount)
+            return;
+    } while (!m_pendingWakeUpRequestCount.compare_exchange_weak(
+        pendingWakeUpRequestCount, pendingWakeUpRequestCount + 1));
+}
+
+void ThreadPool::processPendingWakeUps() noexcept
+{
+    assert(m_pendingWakeUpRequestCount >= 0);
+    assert(m_pendingWakeUpRequestCount <= m_threadCount);
+
+    int pendingWakeUpRequestCount = m_pendingWakeUpRequestCount;
+    do {
+        assert(pendingWakeUpRequestCount >= 0);
+        if (pendingWakeUpRequestCount == 0)
+            return;
+    } while (!m_pendingWakeUpRequestCount.compare_exchange_weak(
+        pendingWakeUpRequestCount, pendingWakeUpRequestCount - 1));
+
+    wakeOneThread();
 }
 
 bool ThreadPool::haveWork() const noexcept
@@ -317,7 +372,7 @@ int ThreadPool::threadCount() const noexcept
     return m_threadCount;
 }
 
-const ThreadPool* ThreadPool::currentThreadPool() noexcept
+ThreadPool* ThreadPool::currentThreadPool() noexcept
 {
     return s_currentThreadPool;
 }

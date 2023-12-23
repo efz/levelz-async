@@ -34,12 +34,9 @@ BackgroundSimpleTask SyncAutoResetEvent::asyncSetTask()
 
 void SyncAutoResetEvent::asyncSet() noexcept
 {
-    if (m_mutex.try_lock()) {
-        std::unique_lock lock { m_mutex, std::adopt_lock };
-        (void)m_state.exchange(State::Set);
-        m_cv.notify_one();
+    bool lockSuccess = trySet();
+    if (lockSuccess)
         return;
-    }
 
     BackgroundSimpleTask simpleTask = asyncSetTask();
     simpleTask.coroutine().schedule();
@@ -86,6 +83,18 @@ void SyncAutoResetEvent::waitFor(std::chrono::duration<uint64_t, std::chrono::na
 bool SyncAutoResetEvent::isSet() const noexcept
 {
     return m_state == State::Set;
+}
+
+bool SyncAutoResetEvent::trySet() noexcept
+{
+    if (m_mutex.try_lock()) {
+        std::unique_lock lock { m_mutex, std::adopt_lock };
+        (void)m_state.exchange(State::Set);
+        m_cv.notify_one();
+        return true;
+    } else {
+        return false;
+    }
 }
 
 }

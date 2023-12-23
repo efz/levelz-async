@@ -89,6 +89,9 @@ void Awaiter::onResume()
 
 Awaiter::SuspensionAdvice Awaiter::onReady()
 {
+    if (ThreadPool::currentThreadPool())
+        ThreadPool::currentThreadPool()->processPendingWakeUps();
+
     auto isFinalAwaiter = kind() == AwaiterKind::Final;
     if (isFinalAwaiter)
         ThreadPool::setCurrentCoroutine(nullptr);

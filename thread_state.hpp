@@ -23,8 +23,8 @@ struct ThreadState {
 private:
     friend struct ThreadPool;
 
-    bool tryWakeUp();
-    bool asyncTryWakeUp();
+    bool wakeUpIfSleeping();
+    [[nodiscard]] bool tryWakeUpIfSleeping() noexcept;
     void sleepUntilWoken();
     bool haveLocalWork() const noexcept;
     void localEnqueue(Coroutine* operation) noexcept;

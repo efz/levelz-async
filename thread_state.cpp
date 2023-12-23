@@ -17,7 +17,7 @@ ThreadState::ThreadState() noexcept
 {
 }
 
-bool ThreadState::tryWakeUp()
+bool ThreadState::wakeUpIfSleeping()
 {
     if (!m_isSleeping)
         return false;
@@ -25,12 +25,11 @@ bool ThreadState::tryWakeUp()
     return true;
 }
 
-bool ThreadState::asyncTryWakeUp()
+bool ThreadState::tryWakeUpIfSleeping() noexcept
 {
     if (!m_isSleeping)
         return false;
-    m_wakeUpEvent.asyncSet();
-    return true;
+    return m_wakeUpEvent.trySet();
 }
 
 void ThreadState::sleepUntilWoken()

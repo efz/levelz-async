@@ -69,6 +69,8 @@ private:
     static void yield();
 
     void wakeOneThread() noexcept;
+    [[nodiscard]] bool wakeOneThread(bool doImmediateWakeUp) noexcept;
+    void processPendingWakeUps() noexcept;
     Coroutine* tryGetRemote() noexcept;
     Coroutine* tryGetWork() noexcept;
     static void resume(Coroutine* coroutine, int chainedExecutionAllowance);
@@ -78,7 +80,7 @@ private:
     static Coroutine* currentCoroutine() noexcept;
     static void setCurrentCoroutine(Coroutine* coroutine) noexcept;
     static ThreadPool& threadPool(ThreadPoolKind kind) noexcept;
-    static const ThreadPool* currentThreadPool() noexcept;
+    static ThreadPool* currentThreadPool() noexcept;
 
     static thread_local ThreadState* s_currentState;
     static thread_local ThreadPool* s_currentThreadPool;
@@ -95,6 +97,7 @@ private:
     FifoWaitList m_globalQueue;
     const bool m_noLocalWork;
     const ThreadPoolKind m_kind;
+    std::atomic<int> m_pendingWakeUpRequestCount;
 
     static constexpr int s_numRemoteWorksChecksBeforeSleep = 32;
 };
